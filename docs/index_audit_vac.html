@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DD Metrics — Audit (Vacations + DA)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script defer src="./app_audit_vac.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>DD Metrics — Audit (Vacations + DA)</h1>
+  </header>
+
+  <main class="container">
+    <!-- Step 1: Day & Shift -->
+    <section class="card">
+      <h2>Step 1 — Pick day & shift</h2>
+      <div class="row">
+        <label>Date <input type="date" id="dateInput" /></label>
+        <label>Shift
+          <select id="shiftInput">
+            <option>Day</option>
+            <option>Night</option>
+          </select>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="excludeNewHires" checked />
+          Exclude new hires (&lt; 3 days)
+        </label>
+      </div>
+      <div id="shiftCodes" class="hint"></div>
+    </section>
+
+    <!-- Step 2: Uploads -->
+    <section class="card">
+      <h2>Step 2 — Upload files (same date)</h2>
+      <div class="row">
+        <label class="file">Roster CSV
+          <input type="file" id="rosterFile" accept=".csv" />
+        </label>
+        <label class="file">MyTime CSV
+          <input type="file" id="mytimeFile" accept=".csv" />
+        </label>
+        <label class="file">Vacation CSV (CAN Daily Hours Summary)
+          <input type="file" id="vacFile" accept=".csv" />
+        </label>
+        <button id="processBtn" class="primary">Process</button>
+      </div>
+      <div id="fileStatus" class="hint"></div>
+    </section>
+
+    <!-- Results -->
+    <section class="card">
+      <h2>Results — Dept × AMZN/TEMP (Inbound, DA, ICQA, CRETs)</h2>
+      <div id="summaryChips" class="chips"></div>
+
+      <div class="grid-2">
+        <div>
+          <h3>Regular HC (Cohort Expected)</h3>
+          <p class="hint" id="expectedNote"></p>
+          <table id="expectedTable" class="table"></table>
+        </div>
+        <div>
+          <h3>Regular HC Present (Excluding Swaps)</h3>
+          <table id="presentTable" class="table"></table>
+        </div>
+      </div>
+
+      <!-- Verify & download -->
+      <div id="verify" class="mt"></div>
+      <button id="downloadAudit" class="primary">Download audit CSV</button>
+
+      <details class="mt">
+        <summary>What’s included?</summary>
+        <ul>
+          <li>Corner filter by selected day/shift (from <code>settings.json</code>).</li>
+          <li><b>DA</b> IDs: <code>1211030, 1211040, 1299030, 1299040</code>. Inbound excludes DA to avoid double counting.</li>
+          <li><b>Present</b> = MyTime “On Premises” markers.</li>
+          <li><b>Vacations</b>: From CAN Daily Hours Summary → exclude if <code>Vacation</code> or <code>Vacation Unpaid</code> have hours (&gt;0), including <code>HH:MM</code>.</li>
+        </ul>
+      </details>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <small>Audit + Vacations build — safe to test without touching your main dashboard.</small>
+  </footer>
+</body>
+</html>
