@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DD Metrics — Unified</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>DD Metrics — Unified</h1>
+  </header>
+
+  <main class="container">
+    <!-- Step 1 -->
+    <section class="card">
+      <h2>1) Pick day & shift</h2>
+      <div class="row">
+        <label>Date <input type="date" id="dateInput" /></label>
+        <label>Shift
+          <select id="shiftInput"><option>Day</option><option>Night</option></select>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="excludeNewHires" checked />
+          Exclude new hires (&lt; 3 days)
+        </label>
+      </div>
+      <div id="shiftCodes" class="hint"></div>
+    </section>
+
+    <!-- Step 2 -->
+    <section class="card">
+      <h2>2) Upload files (same date)</h2>
+      <div class="row">
+        <label class="file">Roster CSV <input type="file" id="rosterFile" accept=".csv" /></label>
+        <label class="file">MyTime CSV <input type="file" id="mytimeFile" accept=".csv" /></label>
+        <label class="file">Vacation CSV (optional, CAN Daily Hours Summary)
+          <input type="file" id="vacFile" accept=".csv" />
+        </label>
+        <button id="processBtn" class="primary">Process</button>
+      </div>
+      <div id="fileStatus" class="hint"></div>
+    </section>
+
+    <!-- Tabs -->
+    <section class="card">
+      <div class="tabs">
+        <button class="tab active" data-tab="dashTab">Dashboard</button>
+        <button class="tab" data-tab="auditTab">Audit</button>
+      </div>
+
+      <!-- Dashboard -->
+      <div id="dashTab" class="tabpane active">
+        <h2>Dept × AMZN/TEMP (Inbound, DA, ICQA, CRETs)</h2>
+        <div id="summaryChips" class="chips"></div>
+        <div class="grid-2">
+          <div>
+            <h3>Regular HC (Cohort Expected)</h3>
+            <p class="hint" id="expectedNote"></p>
+            <table id="expectedTable" class="table"></table>
+          </div>
+          <div>
+            <h3>Regular HC Present (Excluding Swaps)</h3>
+            <table id="presentTable" class="table"></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit -->
+      <div id="auditTab" class="tabpane">
+        <h2>Verify & Drill-down</h2>
+        <div id="verify" class="mt"></div>
+        <button id="downloadAudit" class="primary">Download audit CSV</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <small>Unified build — DA included; Vacation reduces Expected if file provided.</small>
+  </footer>
+</body>
+</html>
