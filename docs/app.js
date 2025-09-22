@@ -34,13 +34,20 @@ function buildExclusions(hoursRows) {
     );
     if (!eid) continue;
 
-    const bankedStr = readCol(r, COL_Q_IDX, "Q", "Banked Holiday", "Banked");
-    const vacStr    = readCol(r, COL_S_IDX, "S", "Vacation");
+    // Try friendly names first; fall back to letter positions if needed
+    const bankedStr = readCol(
+      r, COL_Q_IDX,
+      "Banked Holiday", "Banked Holiday Hours", "Banked", "Q"
+    );
+    const vacStr = readCol(
+      r, COL_S_IDX,
+      "Vacation", "Vacation Hours", "S"
+    );
 
     const bankedMin = toMinutes(bankedStr);
     const vacMin    = toMinutes(vacStr);
 
-    if (bankedMin === 720) bankedSet.add(eid); // 12h
+    if (bankedMin === 720) bankedSet.add(eid); // 12h = 720 minutes
     if (vacMin > 0)        vacSet.add(eid);
   }
   const excludeSet = new Set([...vacSet, ...bankedSet]);
@@ -85,13 +92,12 @@ function ensureDABucket(){
 }
 
 // ====== Elements ======
-const dateEl   = document.getElementById("dateInput");
-const shiftEl  = document.getElementById("shiftInput");
-const newHireEl= document.getElementById("excludeNewHires");
-const rosterEl = document.getElementById("rosterFile");
-const mytimeEl = document.getElementById("mytimeFile");
-const vacEl    = document.getElementById("vacFile");
-const codesEl  = document.getElementById("shiftCodes");
+const dateEl     = document.getElementById("dateInput");
+const shiftEl    = document.getElementById("shiftInput");
+const newHireEl  = document.getElementById("excludeNewHires");
+const rosterEl   = document.getElementById("rosterFile");
+const mytimeEl   = document.getElementById("mytimeFile"); // <- load CAN Daily Hours Summary here
+const codesEl    = document.getElementById("shiftCodes");
 const processBtn = document.getElementById("processBtn");
 const fileStatus = document.getElementById("fileStatus");
 
@@ -179,7 +185,7 @@ function renderTables(expected, present){
   presentTable.innerHTML = header + `<tbody>${rowsPre}</tbody>
     <tfoot><tr><td>Total</td><td class="right">${totalsPre.AMZN}</td><td class="right">${totalsPre.TEMP}</td><td class="right">${totalsPre.TOTAL}</td></tr></tfoot>`;
 }
-function renderChips(expected, present, dayName, shift, codes, vacExcluded){
+function renderChips(expected, present, dayName, shift, codes){
   const exp = sumBlock(expected).TOTAL;
   const pre = sumBlock(present).TOTAL;
   const pct = exp ? ((pre/exp)*100).toFixed(1) : "0.0";
@@ -189,7 +195,6 @@ function renderChips(expected, present, dayName, shift, codes, vacExcluded){
     <span class="chip">Corners: ${codes.map(c=>`<code>${c}</code>`).join(" ")}</span>
     <span class="chip">Expected Total: <b>${exp}</b></span>
     <span class="chip ${pre>=exp?'ok':'warn'}">Present Total: <b>${pre}</b> (${pct}%)</span>
-    ${vacExcluded!=null ? `<span class="chip">Vacation excluded: <b>${vacExcluded}</b></span>` : ""}
   `;
 }
 
@@ -215,23 +220,12 @@ function parseCSVFile(file, opts={header:true, skipFirstLine:false}){
   });
 }
 
-// HH:MM → decimal hours
-function toHours(val) {
-  const t = String(val ?? "").trim();
-  if (!t) return 0;
-  const m = t.match(/^(\d{1,2}):(\d{2})$/);
-  if (m) return parseInt(m[1],10) + parseInt(m[2],10)/60;
-  const cleaned = t.replace(/,/g, ".").replace(/[^\d.]/g, "");
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? 0 : n;
-}
-
 // ====== PROCESS ======
 processBtn.addEventListener("click", async ()=>{
   if (!SETTINGS){ alert("Settings not loaded yet. Try again."); return; }
   const dayName = toDayName(dateEl.value);
   if (!dateEl.value){ alert("Pick a date."); return; }
-  if (!rosterEl.files[0] || !mytimeEl.files[0]){ alert("Upload both Roster CSV and MyTime CSV."); return; }
+  if (!rosterEl.files[0] || !mytimeEl.files[0]){ alert("Upload both Roster CSV and CAN Daily Hours Summary CSV."); return; }
 
   const shift = shiftEl.value;
   const codes = SETTINGS.shift_schedule?.[shift]?.[dayName] || [];
@@ -240,93 +234,16 @@ processBtn.addEventListener("click", async ()=>{
   fileStatus.textContent = "Parsing files…";
 
   try {
-    const [rosterRaw, mytimeRaw] = await Promise.all([
+    const [rosterRaw, hoursSummaryRows] = await Promise.all([
       parseCSVFile(rosterEl.files[0], {header:true}),
-      parseCSVFile(mytimeEl.files[0], {header:true, skipFirstLine:true})
+      parseCSVFile(mytimeEl.files[0], {header:true, skipFirstLine:true}) // CAN Daily Hours Summary
     ]);
 
-    // Vacation (optional)
-    let vacIds = new Set(), vacRowsCount = 0;
-    if (vacEl.files[0]) {
-      const vacText = await vacEl.files[0].text();
-
-      // detect header row (first line containing Employee/Person id)
-      const lines = vacText.split(/\r?\n/).filter(l => l.trim().length);
-      let headerIndex = 0;
-      for (let i = 0; i < Math.min(50, lines.length); i++) {
-        if (/(employee id|person id|person number)/i.test(lines[i])) { headerIndex = i; break; }
-      }
-
-      const vacRaw = await new Promise(resolve=>{
-        Papa.parse(vacText, {
-          header: true,
-          skipEmptyLines: true,
-          transformHeader: h => (h||"").trim(),
-          beforeFirstChunk: chunk => {
-            const arr = chunk.split(/\r?\n/);
-            return arr.slice(headerIndex).join("\n");
-          },
-          complete: res => {
-            const rows = res.data.map(r=>{
-              Object.keys(r).forEach(k=>{ if (/^Unnamed/.test(k)) delete r[k]; });
-              return r;
-            });
-            resolve(rows);
-          }
-        });
-      });
-      vacRowsCount = vacRaw.length;
-
-      const sampleV = vacRaw[0] || {};
-      const V_ID    = findKey(sampleV, ["Employee ID","Person ID","Person Number","Badge ID","ID"]) || "Employee ID";
-      const V_DATE  = findKey(sampleV, ["Date","Worked Date","Shift Date","Business Date"]);
-      const V_VAC   = findKey(sampleV, ["Vacation","Vacation Hours"]);
-      const V_VACU  = findKey(sampleV, ["Vacation Unpaid","Vacation (Unpaid)","Vacation Unpaid Hours"]);
-      const V_HOURS = findKey(sampleV, ["Hours","Total Hours","Qty","Quantity"]);
-      const V_CODE1 = findKey(sampleV, ["Pay Code","PayCode","Earning Code"]);
-      const V_CODE2 = findKey(sampleV, ["Absence Name","Absence Type","Time Off Type","Time-Off Type","Category"]);
-
-      const selectedISO = dateEl.value;
-      const sameDay = (val) => {
-        if (!V_DATE) return true;            // some exports are single-day
-        const d = new Date(val); if (isNaN(d)) return false;
-        return d.toISOString().slice(0,10) === selectedISO;
-      };
-
-      // Wide-column strategy
-      const vacIdsA = new Set();
-      if (V_VAC || V_VACU) {
-        for (const row of vacRaw) {
-          const idRaw = row[V_ID];
-          if (!idRaw || !sameDay(row[V_DATE])) continue;
-          const a = V_VAC ? toHours(row[V_VAC]) : 0;
-          const b = V_VACU? toHours(row[V_VACU]): 0;
-          if ((a+b)>0){
-            const id = String(idRaw).replace(/\D/g,"").replace(/^0+/,"");
-            if (id) vacIdsA.add(id);
-          }
-        }
-      }
-      // Code+hours strategy
-      const vacIdsB = new Set();
-      if ((V_CODE1 || V_CODE2) && V_HOURS) {
-        for (const row of vacRaw) {
-          const idRaw = row[V_ID];
-          if (!idRaw || !sameDay(row[V_DATE])) continue;
-          const label = String(row[V_CODE1 || V_CODE2] || "").toLowerCase();
-          const hrs = toHours(row[V_HOURS]);
-          if (/vac/.test(label) && hrs > 0) {
-            const id = String(idRaw).replace(/\D/g,"").replace(/^0+/,"");
-            if (id) vacIdsB.add(id);
-          }
-        }
-      }
-      vacIds = new Set([...vacIdsA, ...vacIdsB]);
-
-      expectedNote.textContent = `Expected = Corner-filtered cohort − Vacation exclusions. Vacation excluded: ${vacIds.size}`;
-    } else {
-      expectedNote.textContent = `Expected = Corner-filtered cohort (no vacation file uploaded).`;
-    }
+    // ====== Auto Exclusions from Hours Summary (no checkbox) ======
+    const EX = buildExclusions(hoursSummaryRows);
+    renderExclusionSummary(EX);
+    expectedNote.textContent = `Expected = Corner-filtered cohort − Time-off (Vacation S + Banked Q). ` +
+                               `Vacation: ${EX.vacSet.size} | Banked: ${EX.bankedSet.size} | Total unique: ${EX.excludeSet.size}`;
 
     // Resolve roster headers
     const r0 = rosterRaw[0] || {};
@@ -339,16 +256,15 @@ processBtn.addEventListener("click", async ()=>{
     const R_START = findKey(r0, ["Employment Start Date","Hire Date","Start Date"]);
     if (!R_EMP || !R_DEPT || !(R_SP || R_CORNER)) throw new Error("Missing roster cols (Employee ID, Department ID, Shift Pattern/Corner).");
 
-    // Resolve MyTime headers
-    const m0 = mytimeRaw[0] || {};
+    // ====== On-Premise mapping from Hours Summary ======
+    const m0 = hoursSummaryRows[0] || {};
     const M_PERSON = findKey(m0, ["Person ID","Employee ID","Person Number","ID"]);
-    const M_ONPREM = findKey(m0, ["On Premises","On Premises?","OnPremises"]);
-    if (!M_PERSON || !M_ONPREM) throw new Error("Missing MyTime cols (Person ID / On Premises).");
+    const M_ONPREM = findKey(m0, ["On Premises","On Premises?","OnPremises","On Premise"]);
+    if (!M_PERSON || !M_ONPREM) throw new Error("Missing Hours Summary cols (Person ID / On Premises).");
 
-    // Build On-Prem map
     const presentMarkers = {};
     const onPremMap = new Map();
-    for (const row of mytimeRaw){
+    for (const row of hoursSummaryRows){
       const pid = normalizeId(row[M_PERSON]);
       const val = String(row[M_ONPREM] ?? "").trim().toUpperCase();
       presentMarkers[val] = (presentMarkers[val]||0)+1;
@@ -356,7 +272,7 @@ processBtn.addEventListener("click", async ()=>{
       if (pid) onPremMap.set(pid, (onPremMap.get(pid) || false) || isOnPrem);
     }
 
-    // Enrich roster
+    // ====== Enrich roster ======
     const rosterEnriched = rosterRaw.map(r => {
       const empId  = normalizeId(r[R_EMP]);
       const deptId = String(r[R_DEPT] ?? "").trim();
@@ -367,15 +283,15 @@ processBtn.addEventListener("click", async ()=>{
       const met    = firstAndThird(sp);
       const start  = R_START ? parseDateLoose(r[R_START]) : null;
       const onPrem = onPremMap.get(empId) === true;
-      const vac    = vacIds.has(empId);
-      return { empId, deptId, areaId, empType, sp, corner, met, start, onPrem, vac };
+      const excluded = EX.excludeSet.has(empId); // <- auto time-off exclusion
+      return { empId, deptId, areaId, empType, sp, corner, met, start, onPrem, excluded };
     });
 
     // Corner filter
     let filtered = rosterEnriched.filter(x => codes.includes(x.corner));
 
-    // New hires exclusion
-    if (newHireEl.checked){
+    // New hires exclusion (3-day rule) if toggled
+    if (newHireEl && newHireEl.checked){
       const dayStart = new Date(dateEl.value+"T00:00:00");
       filtered = filtered.filter(x => {
         if (!x.start) return true;
@@ -384,9 +300,8 @@ processBtn.addEventListener("click", async ()=>{
       });
     }
 
-    // Net expected (exclude vacations)
-    const expectedCohort = filtered.filter(x => !x.vac);
-    const vacExcludedCount = filtered.length - expectedCohort.length;
+    // Apply time-off exclusion (Vacation+Banked)
+    const rosterNoTimeOff = filtered.filter(x => !x.excluded);
 
     // Buckets (Inbound excludes DA)
     const cfg = SETTINGS.departments;
@@ -398,19 +313,19 @@ processBtn.addEventListener("click", async ()=>{
 
     const group = (rows, pred) => rows.filter(pred);
 
-    // Expected (after vacation)
+    // Expected (after exclusions)
     const expGroups = {
-      Inbound: group(expectedCohort, inboundMinusDA),
-      DA:      group(expectedCohort, belongsDA),
-      ICQA:    group(expectedCohort, belongsICQA),
-      CRETs:   group(expectedCohort, belongsCRETs)
+      Inbound: group(rosterNoTimeOff, inboundMinusDA),
+      DA:      group(rosterNoTimeOff, belongsDA),
+      ICQA:    group(rosterNoTimeOff, belongsICQA),
+      CRETs:   group(rosterNoTimeOff, belongsCRETs)
     };
-    // Present (MyTime)
+    // Present (MyTime/Hours Summary on-prem)
     const preGroups = {
-      Inbound: group(filtered, x => inboundMinusDA(x) && x.onPrem),
-      DA:      group(filtered, x => belongsDA(x)      && x.onPrem),
-      ICQA:    group(filtered, x => belongsICQA(x)    && x.onPrem),
-      CRETs:   group(filtered, x => belongsCRETs(x)   && x.onPrem)
+      Inbound: group(rosterNoTimeOff, x => inboundMinusDA(x) && x.onPrem),
+      DA:      group(rosterNoTimeOff, x => belongsDA(x)      && x.onPrem),
+      ICQA:    group(rosterNoTimeOff, x => belongsICQA(x)    && x.onPrem),
+      CRETs:   group(rosterNoTimeOff, x => belongsCRETs(x)   && x.onPrem)
     };
 
     const countByType = rows => {
@@ -435,7 +350,7 @@ processBtn.addEventListener("click", async ()=>{
     // Render
     const ordered = obj => Object.fromEntries(ORDER.map(k=>[k, obj[k]]));
     renderTables(ordered(expected), ordered(present));
-    renderChips(expected, present, dayName, shift, codes, vacExcludedCount);
+    renderChips(expected, present, dayName, shift, codes);
     fileStatus.textContent = "Done.";
 
     // ====== AUDIT (Verify + CSV) ======
@@ -449,7 +364,8 @@ processBtn.addEventListener("click", async ()=>{
 
     const auditRows = filtered.map(x=>({
       empId: x.empId, empType: x.empType, deptId: x.deptId, areaId: x.areaId,
-      corner: x.corner, onPrem: x.onPrem ? "YES" : "NO", vac: x.vac ? "YES" : "NO",
+      corner: x.corner, onPrem: x.onPrem ? "YES" : "NO",
+      excluded: x.excluded ? "YES" : "NO", // <- now shows if excluded by Banked/Vacation
       bucket: tagDept(x),
     }));
 
@@ -494,9 +410,11 @@ processBtn.addEventListener("click", async ()=>{
       shift,
       presentMarkers: SETTINGS.present_markers || ["X"],
       rosterRows: rosterRaw.length,
-      mytimeRows: mytimeRaw.length,
-      vacRows: vacRowsCount,
-      vacExcluded: vacExcludedCount,
+      mytimeRows: hoursSummaryRows.length,
+      vacRows: 0, // no separate vac file now
+      vacExcluded: EX.vacSet.size,
+      bankedExcluded: EX.bankedSet.size,
+      totalExcluded: EX.excludeSet.size,
       rosterEnriched: filtered.length,
       afterCorner: filtered.length,
       idMatches: (filtered.filter(x => x.empId && (x.onPrem===true || x.onPrem===false))).length,
@@ -537,9 +455,10 @@ function renderVerify(stats) {
   el.innerHTML = `
     <div class="chips">
       ${pill("Roster rows", stats.rosterRows)}
-      ${pill("MyTime rows", stats.mytimeRows)}
-      ${pill("Vacation rows", stats.vacRows)}
+      ${pill("Hours Summary rows", stats.mytimeRows)}
       ${pill("Vacation excluded", stats.vacExcluded)}
+      ${pill("Banked excluded", stats.bankedExcluded)}
+      ${pill("Total excluded (unique)", stats.totalExcluded)}
       ${pill("ID matches", `${stats.idMatches} / ${stats.rosterEnriched}`)}
       ${pill("Corner filter", `${stats.afterCorner} rows`)}
       ${pill("Present markers", stats.presentMarkers.join(" / "))}
@@ -572,7 +491,7 @@ function renderVerify(stats) {
       drill.innerHTML = `
         <div class="card">
           <b>${key} → ${type}</b>
-          <pre>${sample.slice(0,50).map(x=>`${x.empId} | ${x.empType} | dept=${x.deptId} area=${x.areaId} | corner=${x.corner} | onPrem=${x.onPrem} | vac=${x.vac ? "YES" : "NO"}`).join("\n") || "(no rows)"}</pre>
+          <pre>${sample.slice(0,50).map(x=>`${x.empId} | ${x.empType} | dept=${x.deptId} area=${x.areaId} | corner=${x.corner} | onPrem=${x.onPrem} | excluded=${x.excluded ? "YES" : "NO"}`).join("\n") || "(no rows)"}</pre>
         </div>`;
     });
   });
