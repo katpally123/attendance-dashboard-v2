@@ -1,3 +1,67 @@
+// ===================== [EXCLUSIONS] helpers =====================
+const _txt = v => (v ?? "").toString().trim();
+
+// Column letters → 0-based indexes (A=0 ... Q=16, S=18)
+const COL_Q_IDX = 16; // Banked Holiday (Q)
+const COL_S_IDX = 18; // Vacation (S)
+
+/** read a column value regardless of parser (objects with headers OR array rows) */
+function readCol(row, fallbackIdx, ...names) {
+  if (row && !Array.isArray(row)) {
+    for (const n of names) if (row[n] != null) return row[n];
+  }
+  if (Array.isArray(row)) return row[fallbackIdx];
+  return "";
+}
+
+/** turn "12", "12.0", "12:00", "12:00:00" → minutes */
+function toMinutes(hh) {
+  const t = _txt(hh);
+  if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t) * 60);
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?$/);
+  if (!m) return 0;
+  const h = parseInt(m[1], 10), min = parseInt(m[2] || "0", 10);
+  return h * 60 + min;
+}
+
+/** Build exclusion sets from CAN Daily Hours Summary rows (Q=Banked 12h, S>0=Vacation) */
+function buildExclusions(hoursRows) {
+  const vacSet = new Set(), bankedSet = new Set();
+
+  for (const r of (hoursRows || [])) {
+    const eid = _txt(
+      r["Person Number"] || r["PersonNumber"] || r["EID"] || r["Associate ID"] || r["ID"]
+    );
+    if (!eid) continue;
+
+    const bankedStr = readCol(r, COL_Q_IDX, "Q", "Banked Holiday", "Banked");
+    const vacStr    = readCol(r, COL_S_IDX, "S", "Vacation");
+
+    const bankedMin = toMinutes(bankedStr);
+    const vacMin    = toMinutes(vacStr);
+
+    if (bankedMin === 720) bankedSet.add(eid); // 12h
+    if (vacMin > 0)        vacSet.add(eid);
+  }
+  const excludeSet = new Set([...vacSet, ...bankedSet]);
+  return { vacSet, bankedSet, excludeSet };
+}
+
+/** Optional UI chip; no-ops if the element isn't present yet */
+function renderExclusionSummary(sets) {
+  const el = document.getElementById("exclusion-summary");
+  if (!el || !sets) return;
+  const { vacSet, bankedSet, excludeSet } = sets;
+  el.textContent =
+    `Auto-excluded → Vacation: ${vacSet.size} | Banked: ${bankedSet.size} | Total (unique): ${excludeSet.size}`;
+}
+
+/** convenience: get EID from a roster row */
+function eidOf(row) {
+  return _txt(row?.EID || row?.["Person Number"] || row?.PersonNumber || row?.["Associate ID"] || row?.ID);
+}
+// ===================== [/EXCLUSIONS] helpers =====================
+
 // ====== CONFIG ======
 const SETTINGS_URL = "https://raw.githubusercontent.com/katpally123/attendance-dashboard/main/config/settings.json";
 
