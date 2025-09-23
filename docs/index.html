@@ -4,10 +4,9 @@
   <meta charset="utf-8" />
   <title>Attendance Dashboard v2 — Single File</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Minimal styles (inline so this file is standalone) -->
   <style>
     :root { --bg:#ffffff; --card:#f9fafb; --muted:#6b7280; --bd:#e5e7eb; }
-    body { margin:0; font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:#111827; }
+    body { margin:0; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial; background:var(--bg); color:#111827; }
     header.topbar { padding:12px 16px; border-bottom:1px solid var(--bd); background:#fff; position:sticky; top:0; z-index:10;}
     header h1 { margin:0; font-size:18px; }
     main.container { max-width:1100px; margin:0 auto; padding:16px; }
@@ -30,24 +29,15 @@
     .right { text-align:right; }
     .mt { margin-top:1rem; }
     .flex-between { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
-    .tabs { display:flex; gap:8px; border-bottom:1px solid var(--bd); margin-bottom:8px; }
-    .tab { border:1px solid var(--bd); border-bottom:none; background:#fff; padding:6px 10px; border-top-left-radius:8px; border-top-right-radius:8px; cursor:pointer; }
-    .tab.active { background:#f3f4f6; }
-    .tabpane { display:none; }
-    .tabpane.active { display:block; }
     footer.foot { padding:16px; text-align:center; color:var(--muted); }
     code { background:#f3f4f6; border:1px solid var(--bd); border-radius:6px; padding:1px 4px; }
+    .err { color:#b91c1c; }
   </style>
-  <!-- PapaParse CDN (for CSV parsing) -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <h1>Attendance Dashboard v2 — Single File</h1>
-  </header>
-
+  <header class="topbar"><h1>Attendance Dashboard v2 — Single File</h1></header>
   <main class="container">
-    <!-- Step 1 -->
     <section class="card">
       <h2>1) Pick day & shift</h2>
       <div class="row">
@@ -63,27 +53,27 @@
       <div id="shiftCodes" class="hint"></div>
     </section>
 
-    <!-- Step 2 -->
     <section class="card">
       <h2>2) Upload files (same date)</h2>
       <div class="row">
         <label class="file">Roster CSV <input type="file" id="rosterFile" accept=".csv" /></label>
         <label class="file">CAN Daily Hours Summary CSV <input type="file" id="mytimeFile" accept=".csv" /></label>
+        <label class="file">Vacation CSV (optional; you can re-select the same Hours Summary)
+          <input type="file" id="vacFile" accept=".csv" />
+        </label>
         <button id="processBtn" class="primary">Process</button>
       </div>
       <div id="fileStatus" class="hint"></div>
+      <div id="exclusion-summary" class="hint" style="margin:.5rem 0;"></div>
     </section>
 
-    <!-- Tabs -->
     <section class="card">
       <div class="tabs">
         <button class="tab active" data-tab="dashTab">Dashboard</button>
         <button class="tab" data-tab="auditTab">Audit</button>
       </div>
 
-      <!-- Dashboard -->
       <div id="dashTab" class="tabpane active">
-        <div id="exclusion-summary" class="hint" style="margin:.5rem 0;"></div>
         <h2>Dept × AMZN/TEMP (Inbound, DA, ICQA, CRETs)</h2>
         <div id="summaryChips" class="chips"></div>
         <div class="grid-2">
@@ -99,7 +89,6 @@
         </div>
       </div>
 
-      <!-- Audit -->
       <div id="auditTab" class="tabpane">
         <div class="flex-between">
           <h2 style="margin:0">Audit & Verify</h2>
@@ -109,87 +98,75 @@
       </div>
     </section>
   </main>
-
   <footer class="foot">
-    <small>Single-file build — DA included; auto-excludes Vacation (col S) &amp; Banked Holiday (col Q=12h).</small>
+    <small>Single-file build — DA included; auto-excludes Vacation (col S) & Banked Holiday (col Q=12h).</small>
   </footer>
 
-  <!-- All logic inline so this is a single-file app -->
   <script>
-  // ===== Tabs =====
+  // Tabs
   document.addEventListener("click", (e) => {
-    const b = e.target.closest(".tab");
-    if (!b) return;
+    const b = e.target.closest(".tab"); if (!b) return;
     document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
     document.querySelectorAll(".tabpane").forEach(x=>x.classList.remove("active"));
-    b.classList.add("active");
-    document.getElementById(b.dataset.tab).classList.add("active");
+    b.classList.add("active"); document.getElementById(b.dataset.tab).classList.add("active");
   });
 
-  // ===== Elements =====
-  const dateEl     = document.getElementById("dateInput");
-  const shiftEl    = document.getElementById("shiftInput");
-  const newHireEl  = document.getElementById("excludeNewHires");
-  const rosterEl   = document.getElementById("rosterFile");
-  const mytimeEl   = document.getElementById("mytimeFile");
+  // Elements
+  const dateEl = document.getElementById("dateInput");
+  const shiftEl = document.getElementById("shiftInput");
+  const newHireEl = document.getElementById("excludeNewHires");
+  const rosterEl = document.getElementById("rosterFile");
+  const mytimeEl = document.getElementById("mytimeFile");
+  const vacEl = document.getElementById("vacFile");
   const processBtn = document.getElementById("processBtn");
   const fileStatus = document.getElementById("fileStatus");
   const shiftCodesEl = document.getElementById("shiftCodes");
-
   const summaryChips  = document.getElementById("summaryChips");
   const expectedNote  = document.getElementById("expectedNote");
   const expectedTable = document.getElementById("expectedTable");
   const presentTable  = document.getElementById("presentTable");
 
-  function initUI(){
-    const today = new Date();
-    dateEl.value = today.toISOString().slice(0,10);
-    shiftEl.value = "Day";
-    renderShiftCodes();
-    dateEl.addEventListener("change", renderShiftCodes);
-    shiftEl.addEventListener("change", renderShiftCodes);
-  }
-  initUI();
-
-  // ===== Shift codes (inline config so file is standalone) =====
+  // Minimal inline settings so the file is standalone
   const SETTINGS = {
-    present_markers: ["X", "YES", "Y"],
+    present_markers: ["X","YES","Y"],
     shift_schedule: {
       Day:   { Monday:["D1","D2","D3","D4"], Tuesday:["D1","D2","D3","D4"], Wednesday:["D1","D2","D3","D4"], Thursday:["D1","D2","D3","D4"], Friday:["D1","D2","D3","D4"], Saturday:["D1","D2"], Sunday:["D1","D2"] },
       Night: { Monday:["N1","N2"], Tuesday:["N1","N2"], Wednesday:["N1","N2"], Thursday:["N1","N2"], Friday:["N1","N2"], Saturday:["N1"], Sunday:["N1"] }
     },
     departments: {
-      Inbound: { dept_ids: ["1211010","1211020","1299010","1299020"] },
-      DA:      { dept_ids: ["1211030","1211040","1299030","1299040"] },
-      ICQA:    { dept_ids: ["1299070","1211070"], management_area_id: "27" },
-      CRETs:   { dept_ids: ["1299070","1211070"], management_area_id: "22" }
+      Inbound: { dept_ids:["1211010","1211020","1299010","1299020"] },
+      DA:      { dept_ids:["1211030","1211040","1299030","1299040"] },
+      ICQA:    { dept_ids:["1299070","1211070"], management_area_id:"27" },
+      CRETs:   { dept_ids:["1299070","1211070"], management_area_id:"22" }
     }
   };
   const ORDER = ["Inbound","DA","ICQA","CRETs"];
 
+  // Init
+  (function init(){
+    const today = new Date(); dateEl.value = today.toISOString().slice(0,10);
+    shiftEl.value = "Day"; renderShiftCodes();
+    dateEl.addEventListener("change", renderShiftCodes);
+    shiftEl.addEventListener("change", renderShiftCodes);
+  })();
+
   function toDayName(iso){ return new Date(iso+"T00:00:00").toLocaleDateString("en-US",{weekday:"long"}); }
   function renderShiftCodes(){
     const dayName = toDayName(dateEl.value || new Date().toISOString().slice(0,10));
-    const shift = shiftEl.value;
-    const codes = (SETTINGS.shift_schedule?.[shift]?.[dayName]) || [];
+    const shift = shiftEl.value; const codes = (SETTINGS.shift_schedule?.[shift]?.[dayName]) || [];
     shiftCodesEl.innerHTML = `Shifts for <b>${dayName}</b> — <b>${shift}</b>: ${codes.map(c=>`<code>${c}</code>`).join(" ")}`;
   }
 
-  // ===== CSV helpers =====
+  // CSV
   function parseCSVFile(file, opts={header:true, skipFirstLine:false}){
     return new Promise((resolve,reject)=>{
+      if (!file) return resolve([]);
       const reader = new FileReader();
       reader.onerror = ()=>reject(new Error("Failed to read file"));
       reader.onload = () => {
         let text = reader.result;
-        if (opts.skipFirstLine){
-          const i = text.indexOf("\n");
-          text = i>=0 ? text.slice(i+1) : text;
-        }
-        Papa.parse(text, {
-          header: opts.header,
-          skipEmptyLines: true,
-          transformHeader: h => h.trim(),
+        if (opts.skipFirstLine){ const i = text.indexOf("\\n"); text = i>=0 ? text.slice(i+1) : text; }
+        Papa.parse(text, { header: opts.header, skipEmptyLines: true, transformHeader: h => h.trim(),
           complete: res => resolve(res.data)
         });
       };
@@ -197,139 +174,92 @@
     });
   }
 
-  // ===== small utils =====
+  // Utils
   const _txt = v => (v ?? "").toString().trim();
-  function first2(s){ return (s||"").slice(0,2); }
-  function firstAndThird(s){ return (s?.length>=3) ? s[0]+s[2] : ""; }
   function canon(s){ return String(s||"").trim().toLowerCase().replace(/\s+/g," ").replace(/[^\w? ]/g,""); }
-  function classifyEmpType(v){
-    const x = canon(v);
-    if (!x) return "UNKNOWN";
-    if (/(amzn|amazon|blue badge|bb|fte|full time|part time|pt)\b/.test(x)) return "AMZN";
-    if (/(temp|temporary|seasonal|agency|vendor|contract|white badge|wb|csg|adecco|randstad)/.test(x)) return "TEMP";
-    if (x==="temp") return "TEMP";
-    if (x==="amzn") return "AMZN";
-    return "UNKNOWN";
-  }
   function findKey(row, candidates){
-    const keys = Object.keys(row||{});
-    const wanted = candidates.map(canon);
+    const keys = Object.keys(row||{}), wanted = candidates.map(canon);
     for (const k of keys){ const ck = canon(k); if (wanted.includes(ck)) return k; }
-    for (const k of keys){ const ck = canon(k).replace(/\?/g,""); if (wanted.includes(ck)) return k; }
+    for (const k of keys){ const ck = canon(k).replace(/\\?/g,""); if (wanted.includes(ck)) return k; }
     return null;
   }
-  function normalizeId(v){
-    const t = String(v??"").trim();
-    const digits = t.replace(/\D/g,"");
-    const noLead = digits.replace(/^0+/,"");
-    return noLead || t;
+  function classifyEmpType(v){
+    const x = canon(v); if (!x) return "UNKNOWN";
+    if (/(amzn|amazon|blue badge|bb|fte|full time|part time|pt)\\b/.test(x)) return "AMZN";
+    if (/(temp|temporary|seasonal|agency|vendor|contract|white badge|wb|csg|adecco|randstad)/.test(x)) return "TEMP";
+    if (x==="temp") return "TEMP"; if (x==="amzn") return "AMZN"; return "UNKNOWN";
   }
+  function normalizeId(v){ const t=String(v??"").trim(); const d=t.replace(/\\D/g,""); const n=d.replace(/^0+/,""); return n||t; }
   function parseDateLoose(s){ const d = new Date(s); return isNaN(d) ? null : d; }
-
-  // ===== Exclusions: Banked Holiday (col Q), Vacation (col S) =====
-  const COL_Q_IDX = 16; // Q (0-based)
-  const COL_S_IDX = 18; // S (0-based)
-  function readCol(row, fallbackIdx, ...names) {
-    if (row && !Array.isArray(row)) {
-      for (const n of names) if (row[n] != null) return row[n];
-    }
-    if (Array.isArray(row)) return row[fallbackIdx];
-    return "";
-  }
-  function toMinutes(hh) {
-    const t = _txt(hh);
-    if (/^\d+(\.\d+)?$/.test(t)) return Math.round(parseFloat(t) * 60);
-    const m = t.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?$/);
-    if (!m) return 0;
-    const h = parseInt(m[1], 10), min = parseInt(m[2] || "0", 10);
-    return h * 60 + min;
-  }
-  function buildExclusions(hoursRows) {
-    const vacSet = new Set(), bankedSet = new Set();
-    for (const r of (hoursRows || [])) {
-      const eid = _txt(r["Person Number"] || r["PersonNumber"] || r["EID"] || r["Associate ID"] || r["ID"]);
-      if (!eid) continue;
-      const bankedStr = readCol(r, COL_Q_IDX, "Banked Holiday", "Banked Holiday Hours", "Banked", "Q");
-      const vacStr    = readCol(r, COL_S_IDX, "Vacation", "Vacation Hours", "S");
-      const bankedMin = toMinutes(bankedStr);
-      const vacMin    = toMinutes(vacStr);
-      if (bankedMin === 720) bankedSet.add(eid); // 12h
-      if (vacMin > 0)        vacSet.add(eid);
-    }
-    const excludeSet = new Set([...vacSet, ...bankedSet]);
-    return { vacSet, bankedSet, excludeSet };
-  }
-  function renderExclusionSummary(sets) {
-    const el = document.getElementById("exclusion-summary");
-    if (!el || !sets) return;
-    const { vacSet, bankedSet, excludeSet } = sets;
-    el.textContent = `Auto-excluded → Vacation: ${vacSet.size} | Banked: ${bankedSet.size} | Total (unique): ${excludeSet.size}`;
-  }
   const eidOf = row => _txt(row?.EID || row?.["Person Number"] || row?.PersonNumber || row?.["Associate ID"] || row?.ID);
 
-  // ===== Render helpers =====
-  function sumBlock(block){
-    const acc = {AMZN:0, TEMP:0, TOTAL:0};
-    for (const k of Object.keys(block)){
-      acc.AMZN += block[k].AMZN; acc.TEMP += block[k].TEMP; acc.TOTAL += block[k].TOTAL;
+  // Exclusions (Q=Banked 12h, S>0 Vacation); accept 12, 12.0, 12:00, 12:00:00
+  const COL_Q_IDX = 16, COL_S_IDX = 18;
+  function readCol(row, idx, ...names){ if (row && !Array.isArray(row)) { for (const n of names) if (row[n]!=null) return row[n]; } if (Array.isArray(row)) return row[idx]; return ""; }
+  function toMinutes(hh){ const t=_txt(hh); if (/^\\d+(\\.\\d+)?$/.test(t)) return Math.round(parseFloat(t)*60);
+    const m=t.match(/^(\\d{1,2})(?::(\\d{2}))?(?::\\d{2})?$/); if(!m) return 0; return parseInt(m[1],10)*60 + parseInt(m[2]||"0",10); }
+  function buildExclusions(rows){ const vacSet=new Set(), bankedSet=new Set();
+    for(const r of rows||[]){ const eid=eidOf(r); if(!eid) continue;
+      const bankedStr=readCol(r, COL_Q_IDX,"Banked Holiday","Banked Holiday Hours","Banked","Q");
+      const vacStr=readCol(r, COL_S_IDX,"Vacation","Vacation Hours","S");
+      if (toMinutes(bankedStr)===720) bankedSet.add(eid);
+      if (toMinutes(vacStr)>0)        vacSet.add(eid);
     }
-    return acc;
+    return { vacSet, bankedSet, excludeSet:new Set([...vacSet,...bankedSet]) };
   }
+  function renderExclusionSummary(sets){
+    const el=document.getElementById("exclusion-summary"); if(!el||!sets) return;
+    el.textContent=`Auto-excluded → Vacation: ${sets.vacSet.size} | Banked: ${sets.bankedSet.size} | Total (unique): ${sets.excludeSet.size}`;
+  }
+
+  function sumBlock(block){ const acc={AMZN:0,TEMP:0,TOTAL:0}; for(const k of Object.keys(block)){ acc.AMZN+=block[k].AMZN; acc.TEMP+=block[k].TEMP; acc.TOTAL+=block[k].TOTAL; } return acc; }
   function renderTables(expected, present){
-    const header = `
-      <thead><tr>
-        <th>Department</th><th class="right">AMZN</th><th class="right">TEMP</th><th class="right">TOTAL</th>
-      </tr></thead>`;
-    const row = v => `<tr><td>${v[0]}</td><td class="right">${v[1].AMZN}</td><td class="right">${v[1].TEMP}</td><td class="right">${v[1].TOTAL}</td></tr>`;
-
-    const rowsExp = Object.entries(expected).map(row).join("");
-    const totalsExp = sumBlock(expected);
-    expectedTable.innerHTML = header + `<tbody>${rowsExp}</tbody>
-      <tfoot><tr><td>Total</td><td class="right">${totalsExp.AMZN}</td><td class="right">${totalsExp.TEMP}</td><td class="right">${totalsExp.TOTAL}</td></tr></tfoot>`;
-
-    const rowsPre = Object.entries(present).map(row).join("");
-    const totalsPre = sumBlock(present);
-    presentTable.innerHTML = header + `<tbody>${rowsPre}</tbody>
-      <tfoot><tr><td>Total</td><td class="right">${totalsPre.AMZN}</td><td class="right">${totalsPre.TEMP}</td><td class="right">${totalsPre.TOTAL}</td></tr></tfoot>`;
+    const header=`<thead><tr><th>Department</th><th class="right">AMZN</th><th class="right">TEMP</th><th class="right">TOTAL</th></tr></thead>`;
+    const row=v=>`<tr><td>${v[0]}</td><td class="right">${v[1].AMZN}</td><td class="right">${v[1].TEMP}</td><td class="right">${v[1].TOTAL}</td></tr>`;
+    expectedTable.innerHTML = header + `<tbody>${Object.entries(expected).map(row).join("")}</tbody>
+      <tfoot><tr><td>Total</td><td class="right">${sumBlock(expected).AMZN}</td><td class="right">${sumBlock(expected).TEMP}</td><td class="right">${sumBlock(expected).TOTAL}</td></tr></tfoot>`;
+    presentTable.innerHTML = header + `<tbody>${Object.entries(present).map(row).join("")}</tbody>
+      <tfoot><tr><td>Total</td><td class="right">${sumBlock(present).AMZN}</td><td class="right">${sumBlock(present).TEMP}</td><td class="right">${sumBlock(present).TOTAL}</td></tr></tfoot>`;
   }
   function renderChips(expected, present, dayName, shift, codes){
-    const exp = sumBlock(expected).TOTAL;
-    const pre = sumBlock(present).TOTAL;
-    const pct = exp ? ((pre/exp)*100).toFixed(1) : "0.0";
-    summaryChips.innerHTML = `
-      <span class="chip">Day: <b>${dayName}</b></span>
-      <span class="chip">Shift: <b>${shift}</b></span>
-      <span class="chip">Corners: ${codes.map(c=>`<code>${c}</code>`).join(" ")}</span>
-      <span class="chip">Expected Total: <b>${exp}</b></span>
-      <span class="chip ${pre>=exp?'ok':'warn'}">Present Total: <b>${pre}</b> (${pct}%)</span>
-    `;
+    const exp=sumBlock(expected).TOTAL, pre=sumBlock(present).TOTAL, pct=exp?((pre/exp)*100).toFixed(1):"0.0";
+    document.getElementById("summaryChips").innerHTML=
+      `<span class="chip">Day: <b>${dayName}</b></span>
+       <span class="chip">Shift: <b>${shift}</b></span>
+       <span class="chip">Corners: ${codes.map(c=>`<code>${c}</code>`).join(" ")}</span>
+       <span class="chip">Expected Total: <b>${exp}</b></span>
+       <span class="chip ${pre>=exp?'ok':'warn'}">Present Total: <b>${pre}</b> (${pct}%)</span>`;
   }
 
-  // ===== Process =====
   processBtn.addEventListener("click", async ()=>{
-    const dayName = toDayName(dateEl.value || new Date().toISOString().slice(0,10));
-    if (!dateEl.value){ alert("Pick a date."); return; }
-    if (!rosterEl.files[0] || !mytimeEl.files[0]){ alert("Upload both Roster CSV and Hours Summary CSV."); return; }
-
-    const shift = shiftEl.value;
+    fileStatus.classList.remove("err");
+    if (!dateEl.value){ fileStatus.innerHTML='<span class="err">Pick a date.</span>'; return; }
+    if (!rosterEl.files[0] || !mytimeEl.files[0]){ fileStatus.innerHTML='<span class="err">Upload both Roster and Hours Summary CSVs.</span>'; return; }
+    const dayName = toDayName(dateEl.value); const shift = shiftEl.value;
     const codes = SETTINGS.shift_schedule?.[shift]?.[dayName] || [];
-    if (!codes.length){ alert("No shift codes configured for that selection."); return; }
+    if (!codes.length){ fileStatus.innerHTML='<span class="err">No shift codes configured for that selection.</span>'; return; }
 
     fileStatus.textContent = "Parsing files…";
-
     try {
-      const [rosterRaw, hoursSummaryRows] = await Promise.all([
+      const [rosterRaw, hoursSummaryRows, vacRowsMaybe] = await Promise.all([
         parseCSVFile(rosterEl.files[0], {header:true}),
-        parseCSVFile(mytimeEl.files[0], {header:true, skipFirstLine:true})
+        parseCSVFile(mytimeEl.files[0], {header:true, skipFirstLine:true}),
+        parseCSVFile(vacEl.files[0], {header:true}) // optional; can be same file
       ]);
 
-      // Exclusions from Hours Summary
-      const EX = buildExclusions(hoursSummaryRows);
+      // Build exclusions from Hours Summary + optional Vacation file (union)
+      let EX = buildExclusions(hoursSummaryRows);
+      if (vacRowsMaybe && vacRowsMaybe.length) {
+        const EX2 = buildExclusions(vacRowsMaybe);
+        EX = { vacSet:new Set([...EX.vacSet,...EX2.vacSet]),
+               bankedSet:new Set([...EX.bankedSet,...EX2.bankedSet]),
+               excludeSet:new Set([...EX.excludeSet,...EX2.excludeSet]) };
+      }
       renderExclusionSummary(EX);
-      expectedNote.textContent = `Expected = Corner-filtered cohort − Time-off (Vacation S + Banked Q). ` +
+      expectedNote.textContent = `Expected = Corner-filtered cohort − Time-off (Vacation col S + Banked col Q). `+
                                  `Vacation: ${EX.vacSet.size} | Banked: ${EX.bankedSet.size} | Total unique: ${EX.excludeSet.size}`;
 
-      // Roster headers
+      // Resolve roster headers
       const r0 = rosterRaw[0] || {};
       const R_EMP   = findKey(r0, ["Employee ID","Person Number","Person ID","Badge ID"]);
       const R_DEPT  = findKey(r0, ["Department ID","Home Department ID","Dept ID"]);
@@ -338,22 +268,20 @@
       const R_SP    = findKey(r0, ["Shift Pattern","Schedule Pattern","Shift"]);
       const R_CORNER= findKey(r0, ["Corner","Corner Code"]);
       const R_START = findKey(r0, ["Employment Start Date","Hire Date","Start Date"]);
-      if (!R_EMP || !R_DEPT || !(R_SP || R_CORNER)) throw new Error("Missing roster cols (Employee ID, Department ID, Shift Pattern/Corner).");
+      if (!R_EMP || !R_DEPT || !(R_SP || R_CORNER)) throw new Error("Missing roster cols (Employee ID, Department ID, Shift Pattern/Corner)");
 
-      // Hours Summary headers / on-prem
+      // Hours Summary → On Prem
       const m0 = hoursSummaryRows[0] || {};
       const M_PERSON = findKey(m0, ["Person ID","Employee ID","Person Number","ID"]);
       const M_ONPREM = findKey(m0, ["On Premises","On Premises?","OnPremises","On Premise"]);
-      if (!M_PERSON || !M_ONPREM) throw new Error("Missing Hours Summary cols (Person ID / On Premises).");
-
-      const presentMarkers = {};
+      if (!M_PERSON || !M_ONPREM) throw new Error("Missing Hours Summary cols (Person ID / On Premises)");
       const onPremMap = new Map();
       for (const row of hoursSummaryRows){
         const pid = normalizeId(row[M_PERSON]);
         const val = String(row[M_ONPREM] ?? "").trim().toUpperCase();
-        presentMarkers[val] = (presentMarkers[val]||0)+1;
+        if (!pid) continue;
         const isOnPrem = (SETTINGS.present_markers || ["X"]).includes(val);
-        if (pid) onPremMap.set(pid, (onPremMap.get(pid) || false) || isOnPrem);
+        onPremMap.set(pid, (onPremMap.get(pid) || false) || isOnPrem);
       }
 
       // Enrich roster
@@ -363,8 +291,8 @@
         const areaId = String((R_AREA? r[R_AREA] : "") ?? "").trim();
         const empType= classifyEmpType(r[R_TYPE]);
         const sp     = String((R_SP? r[R_SP] : "") ?? "");
-        const corner = R_CORNER ? String(r[R_CORNER] ?? "").trim() : first2(sp);
-        const met    = firstAndThird(sp);
+        const corner = R_CORNER ? String(r[R_CORNER] ?? "").trim() : (sp||"").slice(0,2);
+        const met    = (sp?.length>=3) ? sp[0]+sp[2] : "";
         const start  = R_START ? parseDateLoose(r[R_START]) : null;
         const onPrem = onPremMap.get(empId) === true;
         const excluded = EX.excludeSet.has(empId);
@@ -384,7 +312,7 @@
         });
       }
 
-      // Exclude time-off
+      // Remove time-off
       const rosterNoTimeOff = filtered.filter(x => !x.excluded);
 
       // Buckets
@@ -396,8 +324,6 @@
       const belongsCRETs   = x => cfg.CRETs.dept_ids.includes(x.deptId) && x.areaId === cfg.CRETs.management_area_id;
 
       const group = (rows, pred) => rows.filter(pred);
-
-      // Expected/Present
       const expGroups = {
         Inbound: group(rosterNoTimeOff, inboundMinusDA),
         DA:      group(rosterNoTimeOff, belongsDA),
@@ -433,7 +359,7 @@
       renderChips(expected, present, dayName, shift, codes);
       fileStatus.textContent = "Done.";
 
-      // ===== Audit/Verify =====
+      // Audit/Verify
       const tagDept = (x)=>{
         if (belongsDA(x)) return "DA";
         if (inboundMinusDA(x)) return "Inbound";
@@ -483,16 +409,12 @@
       };
 
       renderVerify({
-        day: dayName,
-        shift,
+        day: dayName, shift,
         presentMarkers: SETTINGS.present_markers || ["X"],
         rosterRows: rosterRaw.length,
         mytimeRows: hoursSummaryRows.length,
-        vacExcluded: EX.vacSet.size,
-        bankedExcluded: EX.bankedSet.size,
-        totalExcluded: EX.excludeSet.size,
-        rosterEnriched: filtered.length,
-        afterCorner: filtered.length,
+        vacExcluded: EX.vacSet.size, bankedExcluded: EX.bankedSet.size, totalExcluded: EX.excludeSet.size,
+        rosterEnriched: filtered.length, afterCorner: filtered.length,
         idMatches: (filtered.filter(x => x.empId && (x.onPrem===true || x.onPrem===false))).length,
         byDept: {
           Inbound: {expected: expected.Inbound, present: present.Inbound},
@@ -500,21 +422,18 @@
           ICQA:    {expected: expected.ICQA,    present: present.ICQA},
           CRETs:   {expected: expected.CRETs,   present: present.CRETs}
         },
-        samples,
-        auditRows
+        samples, auditRows
       });
 
     } catch (err){
       console.error(err);
-      fileStatus.textContent = "Error processing files. Check CSV headers and try again.";
+      fileStatus.innerHTML = `<span class="err">Error: ${err.message || "processing failed"}</span>`;
       alert(err.message || "Error processing files.");
     }
   });
 
-  // ===== Verify renderer =====
   function renderVerify(stats) {
-    const el = document.getElementById("verify");
-    if (!el) return;
+    const el = document.getElementById("verify"); if (!el) return;
     const pill = (k,v) => `<span class="chip"><b>${k}</b>: ${v}</span>`;
     const row = (name, obj, key) => `
       <tr>
@@ -564,7 +483,7 @@
         drill.innerHTML = `
           <div class="card">
             <b>${key} → ${type}</b>
-            <pre style="white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">
+            <pre style="white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">
 ${sample.slice(0,80).map(x=>`${x.empId} | ${x.empType} | dept=${x.deptId} area=${x.areaId} | corner=${x.corner} | onPrem=${x.onPrem} | excluded=${x.excluded ? "YES" : "NO"}`).join("\n") || "(no rows)"}
             </pre>
           </div>`;
@@ -573,15 +492,12 @@ ${sample.slice(0,80).map(x=>`${x.empId} | ${x.empType} | dept=${x.deptId} area=$
 
     const dl = document.getElementById("downloadAudit");
     if (dl) dl.onclick = ()=>{
-      const rows = stats.auditRows;
-      if (!rows || !rows.length) return alert("No audit rows to download.");
+      const rows = stats.auditRows; if (!rows?.length) return alert("No audit rows to download.");
       const headers = Object.keys(rows[0]);
       const escape = v => `"${String(v??"").replace(/"/g,'""')}"`;
       const csv = [headers.join(","), ...rows.map(r=>headers.map(h=>escape(r[h])).join(","))].join("\n");
-      const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `audit_${stats.day}_${stats.shift}.csv`; a.click();
-      URL.revokeObjectURL(url);
+      const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"}), url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `audit_${stats.day}_${stats.shift}.csv`; a.click(); URL.revokeObjectURL(url);
     };
   }
   </script>
